@@ -1,0 +1,58 @@
+[project]
+name = "micro-web3"
+version = "0.1.0"
+description = "Minimal Ethereum JSON-RPC and ABI client built on the standard library"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Yabir Benchakhtir", email = "git@yabirgb.com" }
+]
+requires-python = ">=3.13"
+keywords = ["ethereum", "web3", "json-rpc", "abi", "keccak", "multicall"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pycryptodome>=3.20,<4",
+]
+
+[dependency-groups]
+dev = [
+    "pyrefly>=1.4.0",
+    "pytest>=8.3",
+    "ruff>=0.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "micro_web3"
+module-root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["micro_web3"]
+
+[tool.pyrefly]
+python-version = "3.13"
+project-includes = ["src/**/*.py", "tests/**/*.py"]
+search-path = ["src"]
