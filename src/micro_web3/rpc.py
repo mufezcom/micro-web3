@@ -9,6 +9,9 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from urllib3 import PoolManager
+from urllib3.exceptions import HTTPError
+
 from .errors import RpcConnectionError, RpcError, RpcResponseError
 
 __all__ = ["RpcNode"]
@@ -29,10 +32,7 @@ class RpcNode:
         headers: Mapping[str, str] | None = None,
         pool_maxsize: int = 10,
     ) -> None:
-        # Deferred so ABI-only users do not pay for the HTTP stack at import.
-        import urllib3
-
-        self._pool = urllib3.PoolManager(num_pools=1, maxsize=pool_maxsize)
+        self._pool = PoolManager(num_pools=1, maxsize=pool_maxsize)
         self.endpoint_uri = endpoint_uri
         self.timeout = timeout
         self._headers = {
@@ -50,8 +50,6 @@ class RpcNode:
         Raises :class:`RpcConnectionError` if the endpoint cannot be reached and
         :class:`RpcResponseError` if it answers with a JSON-RPC error object.
         """
-        from urllib3.exceptions import HTTPError
-
         if params is None:
             params_list: list[Any] = []
         elif isinstance(params, Mapping):
