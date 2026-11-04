@@ -1,10 +1,40 @@
 # Python-generated files
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
 build/
 dist/
 wheels/
-*.egg-info
+sdist/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
 
 # Virtual environments
-.venv
+.venv/
+venv/
+env/
+.env
+.python-version.local
+
+# Test, coverage and tool caches
+.pytest_cache/
+.ruff_cache/
+.pyrefly_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.tox/
+.nox/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
