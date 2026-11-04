@@ -1,13 +1,10 @@
-"""JSON-RPC over the standard library.
+"""JSON-RPC over urllib3.
 
-One HTTP POST per call, no retries, no connection pooling: fallback across
-nodes is the caller's job (see rotkehlchen's ``EthereumManager``).
+Each node keeps its own connection pool. One HTTP POST per call and no retries:
+fallback across nodes is the caller's job (see rotkehlchen's ``EthereumManager``).
 """
 
 import itertools
-import json
-import urllib.error
-import urllib.request
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -21,7 +18,7 @@ _DEFAULT_USER_AGENT = "micro-web3"
 class RpcNode:
     """A single JSON-RPC endpoint."""
 
-    __slots__ = ("_headers", "_ids", "endpoint_uri", "timeout")
+    __slots__ = ("_headers", "_ids", "_pool", "endpoint_uri", "timeout")
 
     def __init__(
         self,
@@ -29,7 +26,12 @@ class RpcNode:
         *,
         timeout: float = 4.0,
         headers: Mapping[str, str] | None = None,
+        pool_maxsize: int = 10,
     ) -> None:
+        # Deferred so ABI-only users do not pay for the HTTP stack at import.
+        import urllib3
+
+        self._pool = urllib3.PoolManager(num_pools=1, maxsize=pool_maxsize)
         self.endpoint_uri = endpoint_uri
         self.timeout = timeout
         self._headers = {
@@ -47,6 +49,10 @@ class RpcNode:
         Raises :class:`RpcConnectionError` if the endpoint cannot be reached and
         :class:`RpcResponseError` if it answers with a JSON-RPC error object.
         """
+        import json
+
+        from urllib3.exceptions import HTTPError
+
         if params is None:
             params_list: list[Any] = []
         elif isinstance(params, Mapping):
@@ -62,33 +68,33 @@ class RpcNode:
             ).encode()
         except (TypeError, ValueError) as exc:
             raise RpcError(f"cannot serialise JSON-RPC params for {method}: {exc}") from exc
-        http_request = urllib.request.Request(
-            self.endpoint_uri,
-            data=payload,
-            headers=self._headers,
-            method="POST",
-        )
 
         try:
-            with urllib.request.urlopen(http_request, timeout=self.timeout) as response:
-                body = response.read()
-        except urllib.error.HTTPError as exc:
-            body = _read_quietly(exc)
-            parsed = _parse_json(body)
-            if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict):
-                raise _response_error(parsed["error"]) from exc
-            raise RpcConnectionError(
-                f"HTTP {exc.code} from {self.endpoint_uri}: {_snippet(body)}",
-                endpoint_uri=self.endpoint_uri,
-                status=exc.code,
-            ) from exc
-        except (urllib.error.URLError, OSError) as exc:
+            response = self._pool.request(
+                "POST",
+                self.endpoint_uri,
+                body=payload,
+                headers=self._headers,
+                timeout=self.timeout,
+                retries=False,
+            )
+            body = response.data
+        except (HTTPError, OSError) as exc:
             raise RpcConnectionError(
                 f"cannot reach {self.endpoint_uri}: {exc}",
                 endpoint_uri=self.endpoint_uri,
             ) from exc
 
         parsed = _parse_json(body)
+        if not 200 <= response.status < 300:
+            if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict):
+                raise _response_error(parsed["error"])
+            raise RpcConnectionError(
+                f"HTTP {response.status} from {self.endpoint_uri}: {_snippet(body)}",
+                endpoint_uri=self.endpoint_uri,
+                status=response.status,
+            )
+
         if not isinstance(parsed, dict):
             raise RpcError(
                 f"invalid JSON-RPC response from {self.endpoint_uri}: {_snippet(body)}",
@@ -111,6 +117,10 @@ class RpcNode:
             return False
         return isinstance(version, str) and version != ""
 
+    def close(self) -> None:
+        """Close the pooled connections. The node reconnects if used again."""
+        self._pool.clear()
+
     def __repr__(self) -> str:
         return f"RpcNode({self.endpoint_uri!r}, timeout={self.timeout!r})"
 
@@ -126,17 +136,12 @@ def _response_error(error: Mapping[str, Any]) -> RpcResponseError:
 
 
 def _parse_json(body: bytes) -> Any:
+    import json
+
     try:
         return json.loads(body)
     except ValueError:
         return None
-
-
-def _read_quietly(exc: urllib.error.HTTPError) -> bytes:
-    try:
-        return exc.read()
-    except OSError:
-        return b""
 
 
 def _snippet(body: bytes, limit: int = 300) -> str:

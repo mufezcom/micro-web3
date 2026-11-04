@@ -1,3 +1,6 @@
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from micro_web3 import (
@@ -111,6 +114,82 @@ def test_is_connected_false_on_rpc_error(rpc):
 def test_is_connected_false_when_unreachable():
     node = __import__("micro_web3").RpcNode("http://127.0.0.1:1", timeout=0.2)
     assert node.is_connected() is False
+
+
+def test_connection_is_reused_between_requests(rpc):
+    node = rpc.node()
+    node.request("eth_blockNumber")
+    node.request("eth_blockNumber")
+    node.request("eth_blockNumber")
+    assert len(rpc.client_ports) == 3
+    assert len(set(rpc.client_ports)) == 1
+
+
+def test_connection_closed_by_server_is_replaced(rpc):
+    rpc.extra_headers = {"Connection": "close"}
+    node = rpc.node()
+    assert node.request("eth_blockNumber") == "0x1"
+    assert node.request("eth_blockNumber") == "0x1"
+    assert len(set(rpc.client_ports)) == 2
+
+
+def test_idle_connection_dropped_by_server_reconnects(rpc):
+    node = rpc.node()
+    node.request("eth_blockNumber")
+    rpc.drop_connections()
+    time.sleep(0.05)
+    assert node.request("eth_blockNumber") == "0x1"
+    assert len(set(rpc.client_ports)) == 2
+
+
+def test_close_releases_connections_and_node_stays_usable(rpc):
+    node = rpc.node()
+    node.request("eth_blockNumber")
+    node.close()
+    assert node.request("eth_blockNumber") == "0x1"
+    assert len(set(rpc.client_ports)) == 2
+
+
+def test_concurrent_requests_share_the_pool(rpc, caplog):
+    rpc.delay = 0.02
+    node = rpc.node(pool_maxsize=4)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: node.request("eth_blockNumber"), range(16)))
+    assert results == ["0x1"] * 16
+    assert len(set(rpc.client_ports)) <= 4
+    assert "Connection pool is full" not in caplog.text
+
+
+def test_unreachable_node_is_not_retried(caplog):
+    node = __import__("micro_web3").RpcNode("http://127.0.0.1:1", timeout=0.2)
+    with pytest.raises(RpcConnectionError):
+        node.request("eth_blockNumber")
+    assert "Retrying" not in caplog.text
+
+
+def test_server_errors_are_not_retried(rpc):
+    rpc.status = 503
+    rpc.raw_body = b"unavailable"
+    with pytest.raises(RpcConnectionError):
+        rpc.node().request("eth_blockNumber")
+    assert len(rpc.requests) == 1
+
+
+def test_timeouts_are_not_retried(rpc):
+    rpc.delay = 0.2
+    with pytest.raises(RpcConnectionError):
+        rpc.node(timeout=0.05).request("eth_blockNumber")
+    assert len(rpc.requests) == 1
+
+
+def test_redirects_are_not_followed(rpc):
+    rpc.status = 302
+    rpc.raw_body = b""
+    rpc.extra_headers = {"Location": rpc.url + "/elsewhere"}
+    with pytest.raises(RpcConnectionError) as excinfo:
+        rpc.node().request("eth_blockNumber")
+    assert excinfo.value.status == 302
+    assert len(rpc.requests) == 1
 
 
 def test_endpoint_uri_is_exposed(rpc):

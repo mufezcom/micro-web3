@@ -130,3 +130,13 @@ def test_repr():
     assert repr(Contract(ADDRESS, ERC20_ABI)) == (
         "Contract(address='0x52908400098527886E0F7030069857D2E4169EE7', functions=4)"
     )
+
+
+def test_reassigning_abi_drops_cached_functions():
+    def entry(type_):
+        return {"type": "function", "name": "f", "inputs": [{"type": type_}], "outputs": []}
+
+    contract = Contract(None, [entry("uint256")])
+    before = contract.encode("f", [1])
+    contract.abi = [entry("uint8")]
+    assert contract.encode("f", [1]) != before

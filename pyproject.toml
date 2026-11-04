@@ -1,7 +1,7 @@
 [project]
 name = "micro-web3"
 version = "0.1.0"
-description = "Minimal Ethereum JSON-RPC and ABI client built on the standard library"
+description = "Minimal Ethereum JSON-RPC and ABI client"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "pycryptodome>=3.20,<4",
+    "urllib3>=2,<3",
 ]
 
 [dependency-groups]

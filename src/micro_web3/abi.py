@@ -8,7 +8,7 @@ and tuples are tuples, addresses are lower-case ``0x`` hex, ``bytesN`` is
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from ._keccak import keccak256
@@ -18,21 +18,109 @@ from .errors import AbiError
 _WORD = 1 << 256
 
 
-@dataclass(frozen=True, slots=True)
+_STATIC_KINDS = frozenset({"uint", "int", "address", "bool", "fixedbytes"})
+
+
 class AbiType:
     """A parsed ABI type. ``kind`` is one of uint, int, address, bool,
-    fixedbytes, bytes, string, array, tuple."""
+    fixedbytes, bytes, string, array, tuple.
+
+    Immutable. ``dynamic`` and ``head_size`` are derived once here so the codec
+    does not recurse per value; ``head_size`` is ``None`` for a malformed type.
+    """
+
+    __slots__ = ("bits", "dynamic", "elem", "fields", "head_size", "kind", "length", "size")
+    __match_args__ = ("kind", "bits", "size", "length", "elem", "fields")
 
     kind: str
-    bits: int = 0
-    size: int = 0
-    length: int | None = None
-    elem: "AbiType | None" = None
-    fields: "tuple[AbiType, ...]" = ()
+    bits: int
+    size: int
+    length: "int | None"
+    elem: "AbiType | None"
+    fields: "tuple[AbiType, ...]"
+    dynamic: bool
+    head_size: "int | None"
+
+    def __init__(
+        self,
+        kind: str,
+        bits: int = 0,
+        size: int = 0,
+        length: "int | None" = None,
+        elem: "AbiType | None" = None,
+        fields: "tuple[AbiType, ...]" = (),
+    ) -> None:
+        dynamic = False
+        head_size: int | None = None
+        if kind in _STATIC_KINDS:
+            head_size = 32
+        elif kind in ("bytes", "string"):
+            dynamic, head_size = True, 32
+        elif kind == "array":
+            if length is None:
+                dynamic, head_size = True, 32
+            elif elem is not None:
+                dynamic = elem.dynamic
+                if dynamic:
+                    head_size = 32
+                elif elem.head_size is not None:
+                    head_size = length * elem.head_size
+        elif kind == "tuple":
+            dynamic = any(field.dynamic for field in fields)
+            if dynamic:
+                head_size = 32
+            elif all(field.head_size is not None for field in fields):
+                head_size = sum(field.head_size or 0 for field in fields)
+        put = object.__setattr__
+        put(self, "kind", kind)
+        put(self, "bits", bits)
+        put(self, "size", size)
+        put(self, "length", length)
+        put(self, "elem", elem)
+        put(self, "fields", fields)
+        put(self, "dynamic", dynamic)
+        put(self, "head_size", head_size)
+
+    def _key(self) -> tuple[Any, ...]:
+        return (self.kind, self.bits, self.size, self.length, self.elem, self.fields)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, AbiType):
+            return NotImplemented
+        return self._key() == other._key()
+
+    def __hash__(self) -> int:
+        return hash(self._key())
+
+    def __repr__(self) -> str:
+        return (
+            f"AbiType(kind={self.kind!r}, bits={self.bits!r}, size={self.size!r}, "
+            f"length={self.length!r}, elem={self.elem!r}, fields={self.fields!r})"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError(f"cannot assign to field {name!r}")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"cannot delete field {name!r}")
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (AbiType, self._key())
 
 
 def parse_type(type_str: str, components: Sequence[Mapping[str, Any]] = ()) -> AbiType:
     """Parse a canonical ABI type such as ``(uint256,address)[]``."""
+    if components:
+        return _parse_type(type_str, components)
+    return _parse_string(type_str)
+
+
+@lru_cache(maxsize=1024)
+def _parse_string(type_str: str) -> AbiType:
+    return _parse_type(type_str, ())
+
+
+def _parse_type(type_str: str, components: Sequence[Mapping[str, Any]]) -> AbiType:
     base, dims = _split_dimensions(type_str)
     if base.startswith("("):
         inner = base[1:-1]
@@ -126,21 +214,25 @@ def encode_call(
     args: Sequence[Any] = (),
 ) -> str:
     """Encode a contract call, returning ``0x`` hex including the selector."""
-    function = find_function(abi, name, args)
-    return "0x" + (selector(function) + _encode_arguments(function, args)).hex()
+    function, body = _resolve(abi, name, args)
+    return "0x" + (selector(function) + body).hex()
 
 
 def _encode_sequence(types: Sequence[AbiType], values: Sequence[Any]) -> bytes:
     if len(types) != len(values):
         raise AbiError(f"expected {len(types)} value(s), got {len(values)}")
-    resolved = list(zip(types, values, strict=True))
-
-    head_size = sum(32 if is_dynamic(item) else static_size(item) for item in types)
+    try:
+        head_size = sum([item.head_size for item in types])  # type: ignore[misc]
+    except TypeError:
+        for item in types:
+            if not is_dynamic(item):
+                static_size(item)  # raises the specific error for a malformed type
+        raise AbiError(f"malformed ABI type in {types!r}") from None
     heads: list[bytes] = []
     tails: list[bytes] = []
     tail_size = 0
-    for abi_type, value in resolved:
-        if is_dynamic(abi_type):
+    for abi_type, value in zip(types, values, strict=True):
+        if abi_type.dynamic:
             heads.append(_to_word(head_size + tail_size))
             tail = _encode_value(abi_type, value)
             tails.append(tail)
@@ -194,7 +286,11 @@ def _encode_value(abi_type: AbiType, value: Any) -> bytes:
             raise AbiError(
                 f"expected {abi_type.length} array element(s), got {len(items)}",
             )
-        body = _encode_sequence([abi_type.elem] * len(items), items)
+        elem = abi_type.elem
+        if elem.dynamic:
+            body = _encode_dynamic_elements(elem, items)
+        else:
+            body = b"".join([_encode_value(elem, item) for item in items])
         if abi_type.length is None:
             return _to_word(len(items)) + body
         return body
@@ -202,6 +298,18 @@ def _encode_value(abi_type: AbiType, value: Any) -> bytes:
         items = _as_sequence(value, "tuple")
         return _encode_sequence(abi_type.fields, items)
     raise AbiError(f"unknown ABI type kind {kind!r}")
+
+
+def _encode_dynamic_elements(elem: AbiType, items: Sequence[Any]) -> bytes:
+    offset = 32 * len(items)
+    heads: list[bytes] = []
+    tails: list[bytes] = []
+    for item in items:
+        tail = _encode_value(elem, item)
+        heads.append(offset.to_bytes(32, "big"))
+        tails.append(tail)
+        offset += len(tail)
+    return b"".join(heads) + b"".join(tails)
 
 
 # --- decoding -----------------------------------------------------------------
@@ -235,7 +343,7 @@ def _decode_sequence(
     values: list[Any] = []
     position = start
     for abi_type in types:
-        if is_dynamic(abi_type):
+        if abi_type.dynamic:
             offset = _read_word(data, position)
             value, _ = _decode_value(abi_type, data, start + offset)
             values.append(value)
@@ -287,11 +395,34 @@ def _decode_value(abi_type: AbiType, data: bytes, position: int) -> tuple[Any, i
             elements_start = position
         if count > (len(data) - elements_start) // 32:
             raise AbiError(f"array of {count} element(s) does not fit in payload")
-        values, end = _decode_sequence([abi_type.elem] * count, data, elements_start)
-        return values, end
+        return _decode_elements(abi_type.elem, count, data, elements_start)
     if kind == "tuple":
         return _decode_sequence(abi_type.fields, data, position)
     raise AbiError(f"unknown ABI type kind {kind!r}")
+
+
+def _decode_elements(
+    elem: AbiType,
+    count: int,
+    data: bytes,
+    start: int,
+) -> tuple[tuple[Any, ...], int]:
+    # The caller has checked that ``count`` words fit, so word slices are in bounds.
+    if elem.kind == "uint":
+        end = start + count * 32
+        return tuple([int.from_bytes(data[i : i + 32]) for i in range(start, end, 32)]), end
+    values: list[Any] = []
+    position = start
+    if elem.dynamic:
+        for _ in range(count):
+            value, _end = _decode_value(elem, data, start + _read_word(data, position))
+            values.append(value)
+            position += 32
+    else:
+        for _ in range(count):
+            value, position = _decode_value(elem, data, position)
+            values.append(value)
+    return tuple(values), position
 
 
 # --- ABI JSON helpers ---------------------------------------------------------
@@ -308,6 +439,15 @@ def find_function(
     on this to trigger an indexer fallback) and :class:`AbiError` when the name
     exists but no overload accepts the arguments.
     """
+    return _resolve(abi, name, args)[0]
+
+
+def _resolve(
+    abi: Sequence[Mapping[str, Any]],
+    name: str,
+    args: Sequence[Any],
+) -> tuple[Mapping[str, Any], bytes]:
+    """Return the first overload accepting ``args`` and the encoded arguments."""
     candidates = [
         entry
         for entry in abi
@@ -319,11 +459,9 @@ def find_function(
     failures: list[str] = []
     for entry in candidates:
         try:
-            _encode_arguments(entry, args)
+            return entry, _encode_arguments(entry, args)
         except AbiError as exc:
             failures.append(str(exc))
-            continue
-        return entry
     raise AbiError(
         f"no overload of {name!r} accepts {len(args)} argument(s): " + "; ".join(failures),
     )
@@ -339,7 +477,12 @@ def function_signature(function: Mapping[str, Any]) -> str:
 
 def selector(function: Mapping[str, Any]) -> bytes:
     """4-byte selector, Keccak-256 of the canonical signature."""
-    return keccak256(function_signature(function).encode("ascii"))[:4]
+    return _selector_of(function_signature(function))
+
+
+@lru_cache(maxsize=1024)
+def _selector_of(signature: str) -> bytes:
+    return keccak256(signature.encode("ascii"))[:4]
 
 
 def inputs_types(function: Mapping[str, Any]) -> tuple[AbiType, ...]:
@@ -370,8 +513,10 @@ def _to_word(value: int) -> bytes:
 
 
 def _read_word(data: bytes, position: int) -> int:
-    _require(data, position, 32)
-    return int.from_bytes(data[position : position + 32], "big")
+    word = data[position : position + 32]
+    if len(word) != 32 or position < 0:
+        _require(data, position, 32)
+    return int.from_bytes(word)
 
 
 def _require(data: bytes, position: int, size: int) -> None:

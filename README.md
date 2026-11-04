@@ -1,14 +1,16 @@
 # micro-web3
 
-A small Ethereum client: JSON-RPC over the standard library, a hand-rolled
+A small Ethereum client: JSON-RPC over urllib3, a hand-rolled
 Solidity ABI codec, EIP-55 checksums, and Multicall3 batching.
 
 Built to replace the slice of web3.py that a backend actually uses, without
 pulling in web3, eth-abi, eth-utils, eth-typing, or their transitive
-dependencies. One runtime dependency, `pycryptodome`, for Keccak-256.
+dependencies. Two runtime dependencies: `pycryptodome` for Keccak-256 and
+`urllib3` for HTTP.
 
 - Python 3.13+
-- HTTP via `urllib.request`; no requests, no connection pool, no retries
+- HTTP via `urllib3` with one connection pool per node; no retries, no redirects,
+  and proxy environment variables are not read
 - No ABI/type/hex-byte libraries
 - `py.typed`
 
@@ -26,6 +28,7 @@ from micro_web3 import Contract, RpcNode
 node = RpcNode("https://ethereum-rpc.publicnode.com", timeout=4)
 node.endpoint_uri  # 'https://ethereum-rpc.publicnode.com'
 node.is_connected()  # web3_clientVersion probe; False instead of raising
+node.close()  # optional: release pooled connections (pool size: RpcNode(uri, pool_maxsize=10))
 
 erc20 = Contract("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", abi)
 erc20.call(node, "decimals")  # 6

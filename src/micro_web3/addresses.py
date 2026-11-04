@@ -4,6 +4,8 @@ Decoding follows eth_abi and returns lower-case ``0x`` hex; checksumming is
 opt-in through :func:`to_checksum_address` (EIP-55).
 """
 
+from functools import lru_cache
+
 from ._keccak import keccak256
 
 
@@ -28,14 +30,25 @@ def to_bytes20(value: str | bytes | bytearray) -> bytes:
 
 def to_checksum_address(value: str | bytes | bytearray) -> str:
     """Return the EIP-55 mixed-case form of ``value``."""
-    raw = to_bytes20(value)
+    if type(value) is str:
+        return _checksum_str(value)
+    return _checksum(to_bytes20(value))
+
+
+@lru_cache(maxsize=4096)
+def _checksum_str(value: str) -> str:
+    return _checksum(to_bytes20(value))
+
+
+def _checksum(raw: bytes) -> str:
     lower = raw.hex()
     digest = keccak256(lower.encode("ascii")).hex()
-    checksummed = "".join(
-        char.upper() if char.isalpha() and int(digest[i], 16) >= 8 else char
-        for i, char in enumerate(lower)
+    return "0x" + "".join(
+        [
+            char.upper() if nibble >= "8" else char
+            for char, nibble in zip(lower, digest, strict=False)
+        ]
     )
-    return "0x" + checksummed
 
 
 def is_address(value: object) -> bool:

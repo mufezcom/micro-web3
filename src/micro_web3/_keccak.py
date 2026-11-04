@@ -5,10 +5,10 @@ library's ``hashlib.sha3_256`` does not implement. pycryptodome provides the C
 implementation.
 """
 
-from Crypto.Hash import keccak
-
 
 def keccak256(data: bytes) -> bytes:
+    from Crypto.Hash import keccak  # deferred: 14ms import
+
     digest = keccak.new(digest_bits=256)
     digest.update(data)
     return digest.digest()
