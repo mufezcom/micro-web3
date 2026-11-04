@@ -5,6 +5,7 @@ fallback across nodes is the caller's job (see rotkehlchen's ``EthereumManager``
 """
 
 import itertools
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -49,8 +50,6 @@ class RpcNode:
         Raises :class:`RpcConnectionError` if the endpoint cannot be reached and
         :class:`RpcResponseError` if it answers with a JSON-RPC error object.
         """
-        import json
-
         from urllib3.exceptions import HTTPError
 
         if params is None:
@@ -136,8 +135,6 @@ def _response_error(error: Mapping[str, Any]) -> RpcResponseError:
 
 
 def _parse_json(body: bytes) -> Any:
-    import json
-
     try:
         return json.loads(body)
     except ValueError:
