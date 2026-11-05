@@ -19,7 +19,12 @@ from ecdsa.util import sigdecode_string
 
 from ._keccak import keccak256
 from .addresses import to_checksum_address
-from .errors import SignatureError
+from .errors import (
+    MessageEncodingError,
+    MessageTypeError,
+    SignatureError,
+    SignatureTypeError,
+)
 
 _PREFIX = b"\x19Ethereum Signed Message:\n"
 _SIGNATURE_LENGTH = 65
@@ -30,16 +35,20 @@ def personal_sign_hash(message: str | bytes | bytearray) -> bytes:
     """Return the EIP-191 (version ``E``) hash a wallet signs for ``message``.
 
     ``str`` messages are UTF-8 encoded; the header carries the byte length.
-    Other types raise ``TypeError``. A ``str`` that cannot be UTF-8 encoded,
-    e.g. one containing a lone surrogate from ``json.loads``, raises
-    ``UnicodeEncodeError`` (a ``ValueError`` subclass).
+    Other types raise :class:`~micro_web3.errors.MessageTypeError` (a
+    ``TypeError``). A ``str`` that cannot be UTF-8 encoded, e.g. one containing
+    a lone surrogate from ``json.loads``, raises
+    :class:`~micro_web3.errors.MessageEncodingError` (a ``UnicodeEncodeError``).
     """
     if isinstance(message, str):
-        body = message.encode("utf-8")
+        try:
+            body = message.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise MessageEncodingError(exc) from exc
     elif isinstance(message, (bytes, bytearray)):
         body = bytes(message)
     else:
-        raise TypeError(f"message must be str or bytes, got {type(message).__name__}")
+        raise MessageTypeError(f"message must be str or bytes, got {type(message).__name__}")
     return keccak256(_PREFIX + str(len(body)).encode("ascii") + body)
 
 
@@ -52,8 +61,9 @@ def recover_message_address(
     ``signature`` is 65 bytes (``r || s || v``) as ``bytes`` or hex, with or
     without the ``0x`` prefix. Raises :class:`SignatureError` when the
     signature is malformed or no signer can be recovered. Messages follow
-    :func:`personal_sign_hash`: non-``str``/``bytes`` values raise ``TypeError``
-    and an unencodable ``str`` (lone surrogate) raises ``UnicodeEncodeError``.
+    :func:`personal_sign_hash`: non-``str``/``bytes`` values raise
+    :class:`~micro_web3.errors.MessageTypeError` and an unencodable ``str``
+    (lone surrogate) raises :class:`~micro_web3.errors.MessageEncodingError`.
     """
     recid, rs = _split_signature(signature)
     r = int.from_bytes(rs[:32], "big")
@@ -126,7 +136,7 @@ def _split_signature(signature: str | bytes | bytearray) -> tuple[int, bytes]:
     elif isinstance(signature, (bytes, bytearray)):
         raw = bytes(signature)
     else:
-        raise TypeError(f"signature must be str or bytes, got {type(signature).__name__}")
+        raise SignatureTypeError(f"signature must be str or bytes, got {type(signature).__name__}")
     if len(raw) != _SIGNATURE_LENGTH:
         raise SignatureError(
             f"signature must be {_SIGNATURE_LENGTH} bytes (r || s || v), got {len(raw)}"

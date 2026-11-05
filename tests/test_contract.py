@@ -1,6 +1,6 @@
 import pytest
 
-from micro_web3 import AbiError, Contract, RpcError
+from micro_web3 import AbiError, Contract
 from micro_web3.abi import encode
 
 ADDRESS = "0x52908400098527886e0f7030069857d2e4169ee7"
@@ -114,9 +114,9 @@ def test_bad_arguments_raise_abi_error():
         Contract(ADDRESS, ERC20_ABI).encode("balanceOf", [])
 
 
-def test_undecodable_payload_raises_rpc_error(rpc):
+def test_undecodable_payload_raises_abi_error(rpc):
     rpc.responder = lambda request: {"result": "0x"}
-    with pytest.raises(RpcError):
+    with pytest.raises(AbiError):
         Contract(ADDRESS, ERC20_ABI).call(rpc.node(), "decimals")
 
 

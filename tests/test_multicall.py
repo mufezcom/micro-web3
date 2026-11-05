@@ -2,6 +2,7 @@ import pytest
 
 from micro_web3 import (
     MULTICALL3_ADDRESS,
+    AbiError,
     RpcError,
     decode,
     encode,
@@ -57,5 +58,5 @@ def test_try_aggregate_propagates_rpc_errors(rpc):
 
 
 def test_try_aggregate_rejects_bad_calldata(rpc):
-    with pytest.raises(RpcError):
+    with pytest.raises(AbiError):
         try_aggregate(rpc.node(), [(TARGET, "not-hex")])

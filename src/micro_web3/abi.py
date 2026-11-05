@@ -13,7 +13,7 @@ from typing import Any
 
 from ._keccak import keccak256
 from .addresses import to_bytes20
-from .errors import AbiError
+from .errors import AbiError, FunctionNotFoundError, ImmutableAbiTypeError
 
 _WORD = 1 << 256
 
@@ -99,10 +99,10 @@ class AbiType:
         )
 
     def __setattr__(self, name: str, value: Any) -> None:
-        raise AttributeError(f"cannot assign to field {name!r}")
+        raise ImmutableAbiTypeError(f"cannot assign to field {name!r}")
 
     def __delattr__(self, name: str) -> None:
-        raise AttributeError(f"cannot delete field {name!r}")
+        raise ImmutableAbiTypeError(f"cannot delete field {name!r}")
 
     def __reduce__(self) -> tuple[Any, ...]:
         return (AbiType, self._key())
@@ -435,9 +435,10 @@ def find_function(
 ) -> Mapping[str, Any]:
     """Resolve an overload by try-encoding the arguments.
 
-    Raises :class:`AttributeError` when no function has that name (callers rely
-    on this to trigger an indexer fallback) and :class:`AbiError` when the name
-    exists but no overload accepts the arguments.
+    Raises :class:`~micro_web3.errors.FunctionNotFoundError` (an
+    ``AttributeError``) when no function has that name (callers rely on this to
+    trigger an indexer fallback) and :class:`AbiError` when the name exists but
+    no overload accepts the arguments.
     """
     return _resolve(abi, name, args)[0]
 
@@ -454,7 +455,7 @@ def _resolve(
         if entry.get("type", "function") == "function" and entry.get("name") == name
     ]
     if not candidates:
-        raise AttributeError(f"ABI has no function named {name!r}")
+        raise FunctionNotFoundError(f"ABI has no function named {name!r}")
 
     failures: list[str] = []
     for entry in candidates:

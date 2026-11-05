@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from .addresses import to_checksum_address
-from .errors import RpcError
+from .errors import BlockNumberError, CalldataError, RpcError
 from .rpc import RpcNode
 
 _BLOCK_TAGS = frozenset({"latest", "earliest", "pending", "safe", "finalized"})
@@ -18,13 +18,13 @@ def to_quantity(value: int | str) -> str:
     and still emit valid ``eth_getLogs`` params.
     """
     if isinstance(value, bool):
-        raise ValueError("block number must not be a bool")
+        raise BlockNumberError("block number must not be a bool")
     if isinstance(value, int):
         if value < 0:
-            raise ValueError(f"negative block number: {value}")
+            raise BlockNumberError(f"negative block number: {value}")
         return hex(value)
     if not isinstance(value, str):
-        raise ValueError(f"invalid block identifier: {value!r}")
+        raise BlockNumberError(f"invalid block identifier: {value!r}")
     stripped = value.strip()
     if stripped in _BLOCK_TAGS:
         return stripped
@@ -32,10 +32,10 @@ def to_quantity(value: int | str) -> str:
         try:
             return hex(int(stripped, 16))
         except ValueError as exc:
-            raise ValueError(f"invalid hex block number: {value!r}") from exc
+            raise BlockNumberError(f"invalid hex block number: {value!r}") from exc
     if stripped.isdigit():
         return hex(int(stripped))
-    raise ValueError(f"invalid block identifier: {value!r}")
+    raise BlockNumberError(f"invalid block identifier: {value!r}")
 
 
 def eth_call(
@@ -111,4 +111,4 @@ def _hex_data(value: str | bytes) -> str:
         if value[:2].lower() != "0x":
             return "0x" + value
         return value
-    raise ValueError(f"invalid calldata type: {type(value).__name__}")
+    raise CalldataError(f"invalid calldata type: {type(value).__name__}")

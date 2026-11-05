@@ -87,10 +87,11 @@ authenticated = is_same_address(signer, claimed_address)
 `personal_sign_hash` accepts the message as `str` (UTF-8 encoded) or `bytes`; the
 EIP-191 header records the **byte** length, not the Python `len()`. A `str` that
 cannot be UTF-8 encoded (a lone surrogate from `json.loads`) raises
-`UnicodeEncodeError`, a `ValueError`. Signatures are
+`MessageEncodingError` (a `UnicodeEncodeError`). Signatures are
 65-byte `r || s || v` as `bytes` or hex (bare or `0x`-prefixed), with `v` given as
 `0`/`1`, `27`/`28`, or an EIP-155 value. `is_same_address` normalizes both sides
-and raises `ValueError` for malformed input rather than returning `False`.
+and raises `AddressError` (a `ValueError`) for malformed input rather than
+returning `False`.
 Hex addresses and signatures must contain only hex digits: `bytes.fromhex` skips
 ASCII whitespace, so whitespace-padded inputs are rejected explicitly.
 
@@ -118,19 +119,32 @@ EIP-55 form.
 
 ## Errors
 
-Every failure derives from `RpcError`:
+Every failure derives from `MicroWeb3Error`:
 
 | Class | Raised for |
 |---|---|
+| `RpcError` | JSON-RPC transport failure; the base of the next two |
 | `RpcConnectionError` | unreachable node, timeout, non-JSON HTTP response |
 | `RpcResponseError` | JSON-RPC `error` object; `.code`, `.message`, `.data` |
 | `AbiError` | unknown type, bad value, undecodable payload |
 | `SignatureError` | malformed message signature, or no signer could be recovered |
+| `AddressError` | malformed address (`ValueError`) |
+| `BlockNumberError` | invalid block number or tag (`ValueError`) |
+| `CalldataError` | calldata that is neither `bytes` nor a hex `str` (`ValueError`) |
+| `ContractError` | contract without an address (`ValueError`) |
+| `FunctionNotFoundError` | ABI has no function with that name (`AttributeError`) |
+| `ImmutableAbiTypeError` | assigning/deleting an `AbiType` field (`AttributeError`) |
+| `MessageTypeError` | message is neither `str` nor `bytes` (`TypeError`) |
+| `SignatureTypeError` | signature is neither `str` nor `bytes` (`TypeError`) |
+| `MessageEncodingError` | message `str` is not UTF-8 encodable (`UnicodeEncodeError`) |
 
 Reverts arrive as `RpcResponseError` with `execution reverted` in the message
 and the revert payload in `.data`. Looking up a function that the ABI does not
-contain raises `AttributeError`, which callers can use to fall back to another
-indexer.
+contain raises `FunctionNotFoundError`, which callers can use to fall back to
+another indexer; it is an `AttributeError` so existing `except AttributeError`
+handling keeps working. Validation errors keep their builtin superclass
+(`ValueError`, `TypeError`, `AttributeError`, `UnicodeEncodeError`) for the same
+reason, and all of them are catchable as `MicroWeb3Error`.
 
 ## What replaces what
 
@@ -150,7 +164,7 @@ indexer.
 | `eth_abi.encode(types, values)` | `encode(types, values)` — also for constructor arguments; no selector |
 | `eth_account.messages.encode_defunct(text=...)` + `_hash_eip191_message` | `personal_sign_hash(message)` |
 | `Account.recover_message(encode_defunct(text=...), signature=sig)` | `recover_message_address(message, sig)` |
-| `web3.exceptions.Web3Exception` | `RpcError` |
+| `web3.exceptions.Web3Exception` | `MicroWeb3Error` |
 
 ## Development
 

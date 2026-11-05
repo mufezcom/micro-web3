@@ -14,7 +14,7 @@ from .abi import (
     selector,
 )
 from .addresses import to_checksum_address
-from .errors import AbiError
+from .errors import AbiError, ContractError, FunctionNotFoundError
 from .methods import eth_call
 from .rpc import RpcNode
 
@@ -73,7 +73,8 @@ class Contract:
     def function(self, name: str, args: Sequence[Any] = ()) -> Mapping[str, Any]:
         """Return the matching ABI entry.
 
-        Raises :class:`AttributeError` if no function has that name and
+        Raises :class:`~micro_web3.errors.FunctionNotFoundError` (an
+        ``AttributeError``) if no function has that name and
         :class:`~micro_web3.errors.AbiError` if the arguments do not fit any
         overload.
         """
@@ -100,7 +101,7 @@ class Contract:
     ) -> Any:
         """``eth_call`` the function and decode the result."""
         if self.address is None:
-            raise ValueError("contract has no address; cannot perform a call")
+            raise ContractError("contract has no address; cannot perform a call")
         function, body = self._resolve(name, args)
         raw = eth_call(node, self.address, "0x" + (function.selector + body).hex(), block)
         return _unwrap(decode_outputs(function.outputs, raw))
@@ -118,7 +119,7 @@ class Contract:
                 if entry.get("type", "function") == "function" and entry.get("name") == name
             )
             if not functions:
-                raise AttributeError(f"ABI has no function named {name!r}")
+                raise FunctionNotFoundError(f"ABI has no function named {name!r}")
             self._functions[name] = functions
         failures: list[str] = []
         for function in functions:

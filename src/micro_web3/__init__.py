@@ -25,7 +25,23 @@ from .abi import (
 )
 from .addresses import is_address, is_same_address, to_checksum_address
 from .contract import Contract
-from .errors import AbiError, RpcConnectionError, RpcError, RpcResponseError, SignatureError
+from .errors import (
+    AbiError,
+    AddressError,
+    BlockNumberError,
+    CalldataError,
+    ContractError,
+    FunctionNotFoundError,
+    ImmutableAbiTypeError,
+    MessageEncodingError,
+    MessageTypeError,
+    MicroWeb3Error,
+    RpcConnectionError,
+    RpcError,
+    RpcResponseError,
+    SignatureError,
+    SignatureTypeError,
+)
 from .methods import eth_call, get_block_number, get_logs, to_quantity
 from .multicall import MULTICALL3_ADDRESS, try_aggregate
 from .rpc import RpcNode
@@ -37,12 +53,22 @@ __all__ = [
     "MULTICALL3_ADDRESS",
     "AbiError",
     "AbiType",
+    "AddressError",
+    "BlockNumberError",
+    "CalldataError",
     "Contract",
+    "ContractError",
+    "FunctionNotFoundError",
+    "ImmutableAbiTypeError",
+    "MessageEncodingError",
+    "MessageTypeError",
+    "MicroWeb3Error",
     "RpcConnectionError",
     "RpcError",
     "RpcNode",
     "RpcResponseError",
     "SignatureError",
+    "SignatureTypeError",
     "__version__",
     "canonical",
     "decode",

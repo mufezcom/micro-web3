@@ -7,6 +7,7 @@ opt-in through :func:`to_checksum_address` (EIP-55).
 from functools import lru_cache
 
 from ._keccak import keccak256
+from .errors import AddressError
 
 
 def to_bytes20(value: str | bytes | bytearray) -> bytes:
@@ -15,21 +16,21 @@ def to_bytes20(value: str | bytes | bytearray) -> bytes:
         value = bytes(value)
     if isinstance(value, bytes):
         if len(value) != 20:
-            raise ValueError(f"address must be 20 bytes, got {len(value)}")
+            raise AddressError(f"address must be 20 bytes, got {len(value)}")
         return value
     if not isinstance(value, str):
-        raise TypeError(f"address must be str or bytes, got {type(value).__name__}")
+        raise AddressError(f"address must be str or bytes, got {type(value).__name__}")
     digits = value[2:] if value[:2].lower() == "0x" else value
     if len(digits) != 40:
-        raise ValueError(f"address must be 20 bytes, got {len(digits) // 2} bytes")
+        raise AddressError(f"address must be 20 bytes, got {len(digits) // 2} bytes")
     try:
         raw = bytes.fromhex(digits)
     except ValueError as exc:
-        raise ValueError(f"invalid address: {value!r}") from exc
+        raise AddressError(f"invalid address: {value!r}") from exc
     # ``bytes.fromhex`` silently skips ASCII whitespace, so "ab ab ..." would
     # otherwise pass the length check and decode to fewer than 20 bytes.
     if raw.hex() != digits.lower():
-        raise ValueError(f"invalid address: {value!r}")
+        raise AddressError(f"invalid address: {value!r}")
     return raw
 
 
@@ -62,13 +63,10 @@ def is_same_address(
 ) -> bool:
     """True when both values are valid addresses for the same 20 bytes.
 
-    Case and checksum form are irrelevant; malformed input raises ``ValueError``,
-    matching ``eth_utils.is_same_address``.
+    Case and checksum form are irrelevant; malformed input raises
+    :class:`AddressError`, matching ``eth_utils.is_same_address``.
     """
-    try:
-        return to_bytes20(left) == to_bytes20(right)
-    except TypeError as exc:
-        raise ValueError(f"both values must be valid Ethereum addresses: {exc}") from exc
+    return to_bytes20(left) == to_bytes20(right)
 
 
 def is_address(value: object) -> bool:
@@ -77,6 +75,6 @@ def is_address(value: object) -> bool:
         return False
     try:
         to_bytes20(value)
-    except ValueError:
+    except AddressError:
         return False
     return True
