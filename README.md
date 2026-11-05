@@ -1,17 +1,21 @@
 # micro-web3
 
 A small Ethereum client: JSON-RPC over urllib3, a hand-rolled
-Solidity ABI codec, EIP-55 checksums, and Multicall3 batching.
+Solidity ABI codec, EIP-55 checksums, EIP-191 `personal_sign` recovery, and
+Multicall3 batching.
 
-Built to replace the slice of web3.py that a backend actually uses, without
-pulling in web3, eth-abi, eth-utils, eth-typing, or their transitive
-dependencies. Two runtime dependencies: `pycryptodome` for Keccak-256 and
-`urllib3` for HTTP.
+Built to replace the slice of web3.py and eth-account that a backend actually
+uses, without pulling in web3, eth-abi, eth-utils, eth-typing, or their
+transitive dependencies. Three direct runtime dependencies: `pycryptodome` for
+Keccak-256, `ecdsa` for secp256k1 signature recovery (which depends on `six`),
+and `urllib3` for HTTP.
 
 - Python 3.13+
 - HTTP via `urllib3` with one connection pool per node; no retries, no redirects,
   and proxy environment variables are not read
 - No ABI/type/hex-byte libraries
+- No hand-written elliptic-curve arithmetic: recovery uses the pure-Python
+  `ecdsa` secp256k1 implementation
 - `py.typed`
 
 ## Install
@@ -70,6 +74,31 @@ results = try_aggregate(
 
 `try_aggregate` uses Multicall3's `tryAggregate(false, calls)`.
 
+### Message signatures
+
+```python
+from micro_web3 import is_same_address, personal_sign_hash, recover_message_address
+
+digest = personal_sign_hash(siwe_message)  # EIP-191 version E, 32 bytes
+signer = recover_message_address(siwe_message, signature)  # EIP-55 address
+authenticated = is_same_address(signer, claimed_address)
+```
+
+`personal_sign_hash` accepts the message as `str` (UTF-8 encoded) or `bytes`; the
+EIP-191 header records the **byte** length, not the Python `len()`. A `str` that
+cannot be UTF-8 encoded (a lone surrogate from `json.loads`) raises
+`UnicodeEncodeError`, a `ValueError`. Signatures are
+65-byte `r || s || v` as `bytes` or hex (bare or `0x`-prefixed), with `v` given as
+`0`/`1`, `27`/`28`, or an EIP-155 value. `is_same_address` normalizes both sides
+and raises `ValueError` for malformed input rather than returning `False`.
+Hex addresses and signatures must contain only hex digits: `bytes.fromhex` skips
+ASCII whitespace, so whitespace-padded inputs are rejected explicitly.
+
+High-s signatures are accepted, as in eth-account: `(r, n - s, v')` with the
+y-parity of `v` flipped (`27` ↔ `28`, i.e. `55 - v`) is the same signer with the
+same message. Replay protection must therefore key on the message or a nonce,
+never on the signature bytes.
+
 ### ABI
 
 ```python
@@ -96,6 +125,7 @@ Every failure derives from `RpcError`:
 | `RpcConnectionError` | unreachable node, timeout, non-JSON HTTP response |
 | `RpcResponseError` | JSON-RPC `error` object; `.code`, `.message`, `.data` |
 | `AbiError` | unknown type, bad value, undecodable payload |
+| `SignatureError` | malformed message signature, or no signer could be recovered |
 
 Reverts arrive as `RpcResponseError` with `execution reverted` in the message
 and the revert payload in `.data`. Looking up a function that the ABI does not
@@ -116,6 +146,10 @@ indexer.
 | `node.eth.get_logs(options)` | `get_logs(node, ...)` |
 | `node.eth.get_block('latest')['number']` | `get_block_number(node)` |
 | `Web3.to_checksum_address` | `to_checksum_address` |
+| `eth_utils.is_same_address` | `is_same_address` |
+| `eth_abi.encode(types, values)` | `encode(types, values)` — also for constructor arguments; no selector |
+| `eth_account.messages.encode_defunct(text=...)` + `_hash_eip191_message` | `personal_sign_hash(message)` |
+| `Account.recover_message(encode_defunct(text=...), signature=sig)` | `recover_message_address(message, sig)` |
 | `web3.exceptions.Web3Exception` | `RpcError` |
 
 ## Development
@@ -130,5 +164,6 @@ uv run pyrefly check
 ```
 
 The ABI tests run against vectors generated with eth_abi 6 (`tests/vectors.json`),
-so the hand-rolled codec is checked against the reference implementation
-without depending on it.
+and the signature tests against eth-account 0.14 output, so the hand-rolled
+hashing and the codec are checked against the reference implementations without
+depending on them.

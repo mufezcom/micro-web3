@@ -23,9 +23,14 @@ def to_bytes20(value: str | bytes | bytearray) -> bytes:
     if len(digits) != 40:
         raise ValueError(f"address must be 20 bytes, got {len(digits) // 2} bytes")
     try:
-        return bytes.fromhex(digits)
+        raw = bytes.fromhex(digits)
     except ValueError as exc:
         raise ValueError(f"invalid address: {value!r}") from exc
+    # ``bytes.fromhex`` silently skips ASCII whitespace, so "ab ab ..." would
+    # otherwise pass the length check and decode to fewer than 20 bytes.
+    if raw.hex() != digits.lower():
+        raise ValueError(f"invalid address: {value!r}")
+    return raw
 
 
 def to_checksum_address(value: str | bytes | bytearray) -> str:
@@ -49,6 +54,21 @@ def _checksum(raw: bytes) -> str:
             for char, nibble in zip(lower, digest, strict=False)
         ]
     )
+
+
+def is_same_address(
+    left: str | bytes | bytearray,
+    right: str | bytes | bytearray,
+) -> bool:
+    """True when both values are valid addresses for the same 20 bytes.
+
+    Case and checksum form are irrelevant; malformed input raises ``ValueError``,
+    matching ``eth_utils.is_same_address``.
+    """
+    try:
+        return to_bytes20(left) == to_bytes20(right)
+    except TypeError as exc:
+        raise ValueError(f"both values must be valid Ethereum addresses: {exc}") from exc
 
 
 def is_address(value: object) -> bool:

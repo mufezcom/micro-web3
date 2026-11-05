@@ -46,3 +46,7 @@ class RpcResponseError(RpcError):
 
 class AbiError(RpcError):
     """An ABI definition, value, or encoded payload was invalid."""
+
+
+class SignatureError(RpcError):
+    """A message signature was malformed or no signer could be recovered."""

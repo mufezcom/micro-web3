@@ -1,6 +1,6 @@
 import pytest
 
-from micro_web3 import is_address, to_checksum_address
+from micro_web3 import is_address, is_same_address, to_checksum_address
 
 # EIP-55 vectors.
 EIP55 = [
@@ -40,3 +40,17 @@ def test_is_address():
     assert is_address(bytes.fromhex(EIP55[0][2:]))
     assert not is_address("0x1234")
     assert not is_address(42)
+
+
+def test_addresses_with_whitespace_are_rejected():
+    body = EIP55[0][2:]
+    # A 40-character hex body, but bytes.fromhex() drops the spaces and yields 19 bytes.
+    spaced = "0x" + body[:8] + " " + body[8:18] + " " + body[18:38]
+    assert len(spaced) == 42
+    assert not is_address(spaced)
+    with pytest.raises(ValueError):
+        to_checksum_address(spaced)
+    with pytest.raises(ValueError):
+        is_same_address(spaced, spaced)
+    with pytest.raises(ValueError):
+        is_same_address(EIP55[0], spaced)
