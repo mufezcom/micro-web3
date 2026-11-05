@@ -256,6 +256,21 @@ def test_signature_whose_recovered_key_is_infinity_is_rejected():
         recover_message_address(message, signature)
 
 
+def test_unused_infinity_candidate_matches_eth_account():
+    # R = (e / s)G makes the candidate for the other y-parity the point at
+    # infinity; eth-account still recovers the candidate that v selects.
+    message = "hello"
+    s = 7
+    e = int.from_bytes(personal_sign_hash(message), "big") % SECP256k1.order
+    r_point = (e * pow(s, -1, SECP256k1.order)) * SECP256k1.generator
+    recid = 1 - r_point.y() % 2
+    signature = r_point.x().to_bytes(32, "big") + s.to_bytes(32, "big")
+    signature += bytes([27 + recid])
+    assert (
+        recover_message_address(message, signature) == "0xEDc921530385758d56c055220E77b30f88Cb8faE"
+    )
+
+
 def test_is_same_address():
     signer, _, _ = SIGNATURES[0]
     assert is_same_address(signer, signer.lower())

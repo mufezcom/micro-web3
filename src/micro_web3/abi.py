@@ -553,9 +553,13 @@ def _as_bytes(value: Any) -> bytes:
         if len(digits) % 2 != 0:
             raise AbiError(f"hex string with odd length: {value!r}")
         try:
-            return bytes.fromhex(digits)
+            raw = bytes.fromhex(digits)
         except ValueError as exc:
             raise AbiError(f"invalid hex value: {value!r}") from exc
+        # ``bytes.fromhex`` skips ASCII whitespace; do not silently accept it.
+        if raw.hex() != digits.lower():
+            raise AbiError(f"invalid hex value: {value!r}")
+        return raw
     raise AbiError(f"expected bytes or hex str, got {type(value).__name__}")
 
 

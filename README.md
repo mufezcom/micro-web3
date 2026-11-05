@@ -14,8 +14,8 @@ and `urllib3` for HTTP.
 - HTTP via `urllib3` with one connection pool per node; no retries, no redirects,
   and proxy environment variables are not read
 - No ABI/type/hex-byte libraries
-- No hand-written elliptic-curve arithmetic: recovery uses the pure-Python
-  `ecdsa` secp256k1 implementation
+- No hand-written field or curve arithmetic: recovery uses the pure-Python
+  `ecdsa` secp256k1 primitives
 - `py.typed`
 
 ## Install

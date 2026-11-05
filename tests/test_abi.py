@@ -141,6 +141,14 @@ def test_decode_outputs_accepts_hex_and_bytes():
     assert decode_outputs(["uint256"], "0x" + encoded.hex()) == (7,)
 
 
+def test_hex_values_with_whitespace_are_rejected():
+    # bytes.fromhex() ignores ASCII whitespace, so these used to be accepted.
+    with pytest.raises(AbiError):
+        encode(["bytes"], ["0x0011  22"])
+    with pytest.raises(AbiError):
+        decode(["bytes"], "0x" + "00" * 16 + "  " + "00" * 16)
+
+
 def test_zero_outputs_ignore_empty_payload():
     assert decode_outputs([], "0x") == ()
 

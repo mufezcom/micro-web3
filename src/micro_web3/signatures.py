@@ -12,8 +12,9 @@ form that wallets return, with ``v`` as ``0``/``1`` (``yParity``) or ``27``/``28
 
 from ecdsa import SECP256k1, VerifyingKey
 from ecdsa.ecdsa import InvalidPointError, RSZeroError
+from ecdsa.ellipticcurve import PointJacobi
 from ecdsa.errors import MalformedPointError
-from ecdsa.numbertheory import SquareRootError
+from ecdsa.numbertheory import SquareRootError, inverse_mod, square_root_mod_prime
 from ecdsa.util import sigdecode_string
 
 from ._keccak import keccak256
@@ -70,17 +71,44 @@ def recover_message_address(
             hashfunc=None,
             sigdecode=sigdecode_string,
         )
+        public_key = candidates[recid]
+    except (TypeError, InvalidPointError):
+        # ecdsa builds both candidates and fails when either is the point at
+        # infinity, even if only the other one is requested. eth-account
+        # recovers the requested candidate alone, so do the same here.
+        try:
+            public_key = VerifyingKey.from_public_point(
+                _recover_point(r, s, digest, recid), SECP256k1, hashfunc=None
+            )
+        except (ArithmeticError, TypeError, ValueError, SquareRootError) as inner:
+            raise SignatureError(f"signature recovery failed: {inner}") from inner
     except (
         ArithmeticError,
-        InvalidPointError,
         MalformedPointError,
         RSZeroError,
-        TypeError,
         ValueError,
         SquareRootError,
     ) as exc:
         raise SignatureError(f"signature recovery failed: {exc}") from exc
-    return to_checksum_address(keccak256(candidates[recid].to_string("uncompressed")[1:])[-20:])
+    return to_checksum_address(keccak256(public_key.to_string("uncompressed")[1:])[-20:])
+
+
+def _recover_point(r: int, s: int, digest: bytes, recid: int) -> PointJacobi:
+    """Recover the public point for one recovery id, without its twin.
+
+    Mirrors ``ecdsa.Signature.recover_public_keys`` for a single candidate; used
+    only when the other candidate is the point at infinity.
+    """
+    curve = SECP256k1.curve
+    p = curve.p()
+    beta = square_root_mod_prime((pow(r, 3, p) + curve.b()) % p, p)
+    y = beta if beta % 2 == recid else p - beta
+    R = PointJacobi(curve, r, y, 1, _ORDER)
+    e = int.from_bytes(digest, "big")
+    point = inverse_mod(r, _ORDER) * (s * R + (-e % _ORDER) * SECP256k1.generator)
+    if point.x() is None:
+        raise SignatureError("signature recovers the point at infinity")
+    return point
 
 
 def _split_signature(signature: str | bytes | bytearray) -> tuple[int, bytes]:
