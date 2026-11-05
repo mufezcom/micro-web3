@@ -1,8 +1,12 @@
 """Every failure the library raises is a :class:`MicroWeb3Error`.
 
-The input-validation errors also keep the builtin they replaced, so existing
-``except ValueError``/``TypeError``/``AttributeError`` handling is unaffected.
+Input-validation errors also derive from the builtin that fits the failure
+(``ValueError``, ``TypeError``, ``AttributeError``, ``UnicodeEncodeError``);
+the builtin follows the error, not the call site.
 """
+
+import copy
+import pickle
 
 import pytest
 
@@ -58,6 +62,18 @@ def test_abi_error():
     assert not isinstance(excinfo.value, RpcError)
 
 
+@pytest.mark.parametrize("abi", [None, "not a list", {"name": "f"}, [1]])
+def test_malformed_abi_is_an_abi_error(abi):
+    with pytest.raises(AbiError) as excinfo:
+        find_function(abi, "f")  # type: ignore[arg-type]
+    assert isinstance(excinfo.value, MicroWeb3Error)
+    assert not isinstance(excinfo.value, RpcError)
+
+    with pytest.raises(AbiError) as excinfo:
+        Contract(ADDRESS, abi)  # type: ignore[arg-type]
+    assert isinstance(excinfo.value, MicroWeb3Error)
+
+
 def test_signature_error():
     with pytest.raises(SignatureError) as excinfo:
         recover_message_address("hello", "0x1234")
@@ -73,7 +89,7 @@ def test_address_error(value):
     assert isinstance(excinfo.value, ValueError)
 
 
-@pytest.mark.parametrize("value", [-1, True, "abc", "0xzz", 1.5])
+@pytest.mark.parametrize("value", [-1, True, "abc", "0xzz", 1.5, "²", "9" * 5000])
 def test_block_number_error(value):
     with pytest.raises(BlockNumberError) as excinfo:
         to_quantity(value)
@@ -150,3 +166,15 @@ def test_message_encoding_error():
         )
     assert isinstance(excinfo.value, MicroWeb3Error)
     assert isinstance(excinfo.value, UnicodeEncodeError)
+
+
+def test_message_encoding_error_survives_pickle_and_copy():
+    with pytest.raises(MessageEncodingError) as excinfo:
+        personal_sign_hash("\ud800")
+    error = excinfo.value
+
+    restored = pickle.loads(pickle.dumps(error))
+    assert isinstance(restored, MessageEncodingError)
+    assert restored.args == error.args == ("utf-8", error.object, 0, 1, error.reason)
+
+    assert copy.copy(error).args == error.args

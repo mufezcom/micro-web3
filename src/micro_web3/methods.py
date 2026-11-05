@@ -34,7 +34,12 @@ def to_quantity(value: int | str) -> str:
         except ValueError as exc:
             raise BlockNumberError(f"invalid hex block number: {value!r}") from exc
     if stripped.isdigit():
-        return hex(int(stripped))
+        # ``isdigit`` accepts non-ASCII digits such as "²", and ``int`` refuses
+        # strings over ``sys.get_int_max_str_digits()``, so both fail here.
+        try:
+            return hex(int(stripped))
+        except ValueError as exc:
+            raise BlockNumberError(f"invalid block number: {value!r}") from exc
     raise BlockNumberError(f"invalid block identifier: {value!r}")
 
 

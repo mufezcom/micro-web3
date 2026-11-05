@@ -196,6 +196,7 @@ def test_signature_type_must_be_str_or_bytes():
         (0, 1, 27),  # r zero
         (1, 0, 27),  # s zero; x = 1 is a valid curve point, so only the range check rejects it
         (5, 7, 27),  # x = 5 is not a curve x-coordinate, so no square root exists
+        (SECP256k1.order + 2, 1, 27),  # r >= order, but ecdsa alone would still recover keys
     ],
 )
 def test_invalid_signature_scalars_are_rejected(r, s, v):

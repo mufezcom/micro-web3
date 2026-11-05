@@ -428,6 +428,22 @@ def _decode_elements(
 # --- ABI JSON helpers ---------------------------------------------------------
 
 
+def check_abi(abi: object) -> tuple[Mapping[str, Any], ...]:
+    """Return the entries of a JSON ABI as a tuple.
+
+    Raises :class:`~micro_web3.errors.AbiError` when ``abi`` is not a sequence
+    of mappings, so a malformed ABI is reported as such instead of surfacing a
+    ``TypeError`` from iteration or an ``AttributeError`` from ``.get``.
+    """
+    if isinstance(abi, (str, bytes)) or not isinstance(abi, Sequence):
+        raise AbiError(f"ABI must be a sequence of mappings, got {type(abi).__name__}")
+    entries = tuple(abi)
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            raise AbiError(f"ABI entries must be mappings, got {type(entry).__name__}")
+    return entries
+
+
 def find_function(
     abi: Sequence[Mapping[str, Any]],
     name: str,
@@ -451,7 +467,7 @@ def _resolve(
     """Return the first overload accepting ``args`` and the encoded arguments."""
     candidates = [
         entry
-        for entry in abi
+        for entry in check_abi(abi)
         if entry.get("type", "function") == "function" and entry.get("name") == name
     ]
     if not candidates:

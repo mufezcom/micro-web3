@@ -4,10 +4,12 @@ Wallets sign ``"\\x19Ethereum Signed Message:\\n" + len(message_bytes) +
 message_bytes`` (version ``E``), where the length is the **UTF-8 byte count**
 written in decimal ASCII, not the Python string length.
 
-Recovery delegates to :mod:`ecdsa`'s secp256k1 implementation; this package
-contains no elliptic-curve arithmetic. Signatures are the 65-byte ``r || s || v``
-form that wallets return, with ``v`` as ``0``/``1`` (``yParity``) or ``27``/``28``
-(and EIP-155 values ``>= 35``, which encode the parity in the low bit).
+Recovery delegates to :mod:`ecdsa`'s secp256k1 primitives. The only arithmetic
+here is the scalar algebra around them: ``pow(r, 3, p) + b`` for the R point's
+x, the recovery formula, and the two scalar range checks. Signatures are the
+65-byte ``r || s || v`` form that wallets return, with ``v`` as ``0``/``1``
+(``yParity``) or ``27``/``28`` (and EIP-155 values ``>= 35``, which encode the
+parity in the low bit).
 """
 
 from ecdsa import SECP256k1, VerifyingKey
@@ -44,7 +46,9 @@ def personal_sign_hash(message: str | bytes | bytearray) -> bytes:
         try:
             body = message.encode("utf-8")
         except UnicodeEncodeError as exc:
-            raise MessageEncodingError(exc) from exc
+            raise MessageEncodingError(
+                exc.encoding, exc.object, exc.start, exc.end, exc.reason
+            ) from exc
     elif isinstance(message, (bytes, bytearray)):
         body = bytes(message)
     else:
@@ -90,7 +94,14 @@ def recover_message_address(
             public_key = VerifyingKey.from_public_point(
                 _recover_point(r, s, digest, recid), SECP256k1, hashfunc=None
             )
-        except (ArithmeticError, TypeError, ValueError, SquareRootError) as inner:
+        except (
+            ArithmeticError,
+            InvalidPointError,
+            MalformedPointError,
+            TypeError,
+            ValueError,
+            SquareRootError,
+        ) as inner:
             raise SignatureError(f"signature recovery failed: {inner}") from inner
     except (
         ArithmeticError,

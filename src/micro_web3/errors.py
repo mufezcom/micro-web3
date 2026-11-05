@@ -5,10 +5,14 @@ call sites can keep a single ``except MicroWeb3Error`` (the replacement for
 ``web3.exceptions.Web3Exception``).
 
 :class:`RpcError` narrows that to transport failures; ABI, signature, address
-and contract validation errors do not derive from it. The input-validation
-errors also inherit the builtin exception they replaced (``ValueError``,
-``TypeError``, ``AttributeError``, ``UnicodeEncodeError``), so existing
-``except ValueError``-style handling keeps working.
+and contract validation errors do not derive from it. Input-validation errors
+also inherit a builtin exception — ``ValueError`` for bad values, ``TypeError``
+for wrong argument types, ``AttributeError`` for missing ABI entries,
+``UnicodeEncodeError`` for unencodable messages — so common ``except
+ValueError``-style handling keeps working. The builtin follows the error, not
+the call site: a non-``str`` address raises :class:`AddressError` (a
+``ValueError``), so ``except TypeError`` around an address call must become
+``except ValueError`` or ``except MicroWeb3Error``.
 """
 
 from typing import Any
@@ -100,13 +104,3 @@ class SignatureTypeError(MicroWeb3Error, TypeError):
 
 class MessageEncodingError(MicroWeb3Error, UnicodeEncodeError):
     """A ``str`` message could not be UTF-8 encoded (e.g. a lone surrogate)."""
-
-    def __init__(self, cause: UnicodeEncodeError) -> None:
-        UnicodeEncodeError.__init__(
-            self,
-            cause.encoding,
-            cause.object,
-            cause.start,
-            cause.end,
-            cause.reason,
-        )

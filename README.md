@@ -14,8 +14,8 @@ and `urllib3` for HTTP.
 - HTTP via `urllib3` with one connection pool per node; no retries, no redirects,
   and proxy environment variables are not read
 - No ABI/type/hex-byte libraries
-- No hand-written field or curve arithmetic: recovery uses the pure-Python
-  `ecdsa` secp256k1 primitives
+- No hand-written point arithmetic: recovery uses the pure-Python `ecdsa`
+  secp256k1 primitives
 - `py.typed`
 
 ## Install
@@ -126,7 +126,7 @@ Every failure derives from `MicroWeb3Error`:
 | `RpcError` | JSON-RPC transport failure; the base of the next two |
 | `RpcConnectionError` | unreachable node, timeout, non-JSON HTTP response |
 | `RpcResponseError` | JSON-RPC `error` object; `.code`, `.message`, `.data` |
-| `AbiError` | unknown type, bad value, undecodable payload |
+| `AbiError` | invalid ABI definition, bad value, or undecodable payload |
 | `SignatureError` | malformed message signature, or no signer could be recovered |
 | `AddressError` | malformed address (`ValueError`) |
 | `BlockNumberError` | invalid block number or tag (`ValueError`) |
@@ -142,9 +142,18 @@ Reverts arrive as `RpcResponseError` with `execution reverted` in the message
 and the revert payload in `.data`. Looking up a function that the ABI does not
 contain raises `FunctionNotFoundError`, which callers can use to fall back to
 another indexer; it is an `AttributeError` so existing `except AttributeError`
-handling keeps working. Validation errors keep their builtin superclass
-(`ValueError`, `TypeError`, `AttributeError`, `UnicodeEncodeError`) for the same
-reason, and all of them are catchable as `MicroWeb3Error`.
+handling keeps working. Validation errors derive from the builtin that fits the
+failure — `ValueError` for bad values, `TypeError` for wrong argument types,
+`AttributeError` for missing ABI entries, `UnicodeEncodeError` for unencodable
+messages — and all are catchable as `MicroWeb3Error`. The builtin follows the
+error, not the call site: a non-`str` address is an `AddressError` (a
+`ValueError`), so `except TypeError` around an address call must become
+`except ValueError` or `except MicroWeb3Error`.
+
+`AbiError` is not an `RpcError`. A well-formed JSON-RPC response whose result
+cannot be decoded (an `eth_call` to an address with no code returns `"0x"`)
+raises `AbiError`, so `except RpcError` around a `Contract.call` will not catch
+it; use `except MicroWeb3Error`, or catch both.
 
 ## What replaces what
 

@@ -7,6 +7,7 @@ from typing import Any
 from .abi import (
     AbiType,
     canonical,
+    check_abi,
     decode_outputs,
     encode,
     inputs_types,
@@ -67,7 +68,7 @@ class Contract:
 
     @abi.setter
     def abi(self, abi: Sequence[Mapping[str, Any]]) -> None:
-        self._abi = tuple(abi)
+        self._abi = check_abi(abi)
         self._functions: dict[str, tuple[_Function, ...]] = {}
 
     def function(self, name: str, args: Sequence[Any] = ()) -> Mapping[str, Any]:
